@@ -2,4 +2,6 @@ Flask==3.1.0
 requests==2.32.3
 python-dateutil==2.9.0.post0
 PyMySQL==1.1.1
+# Requerido por PyMySQL para el método de auth de MySQL 8 (caching_sha2_password).
+cryptography==43.0.1
 pytest==8.3.4

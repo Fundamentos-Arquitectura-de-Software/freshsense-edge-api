@@ -32,22 +32,34 @@ def create_app(
 
 
 def _build_catalog(settings: Settings) -> ThresholdCatalog:
-    """Intenta usar el MySQL local del Edge (inicializando esquema + seed).
-    Si no esta disponible, degrada a un catalogo en memoria con los umbrales
-    por defecto para que la clasificacion siga funcionando en desarrollo."""
-    try:
-        from src.iot_ingestion.infrastructure.mysql import init_schema_and_seed
-        from src.iot_ingestion.infrastructure.mysql_threshold_catalog import MySqlThresholdCatalog
+    """Intenta usar el MySQL local del Edge (inicializando esquema + seed), con
+    reintentos para cubrir el arranque en frio de la BD. Si tras varios intentos
+    no esta disponible, degrada a un catalogo en memoria con los umbrales por
+    defecto para que la clasificacion siga funcionando."""
+    import time
 
-        init_schema_and_seed(settings)
-        logger.info("Usando catalogo de umbrales MySQL en %s:%s/%s",
-                    settings.db_host, settings.db_port, settings.db_name)
-        return MySqlThresholdCatalog(settings)
-    except Exception:
-        logger.exception(
-            "MySQL local no disponible; se usa catalogo en memoria (umbrales por defecto)"
-        )
-        return InMemoryThresholdCatalog.with_defaults()
+    from src.iot_ingestion.infrastructure.mysql import init_schema_and_seed
+    from src.iot_ingestion.infrastructure.mysql_threshold_catalog import MySqlThresholdCatalog
+
+    attempts = 12
+    delay_seconds = 3
+    for attempt in range(1, attempts + 1):
+        try:
+            init_schema_and_seed(settings)
+            logger.info("Usando catalogo de umbrales MySQL en %s:%s/%s",
+                        settings.db_host, settings.db_port, settings.db_name)
+            return MySqlThresholdCatalog(settings)
+        except Exception as exc:
+            if attempt < attempts:
+                logger.warning("MySQL no disponible (intento %s/%s): %s. Reintentando en %ss…",
+                               attempt, attempts, exc, delay_seconds)
+                time.sleep(delay_seconds)
+            else:
+                logger.exception(
+                    "MySQL local no disponible tras %s intentos; se usa catalogo en memoria", attempts
+                )
+                return InMemoryThresholdCatalog.with_defaults()
+    return InMemoryThresholdCatalog.with_defaults()
 
 
 def _register_health(app: Flask) -> None:
